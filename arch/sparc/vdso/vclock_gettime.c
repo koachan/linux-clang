@@ -101,6 +101,11 @@ notrace static __always_inline u64 vread_tick_stick(void)
 	__asm__ __volatile__("rd %%asr24, %0" : "=r" (ret));
 	return ret;
 }
+
+notrace static __always_inline u64 shr64(u64 val, int amt)
+{
+	return val >> amt;
+}
 #else
 notrace static __always_inline u64 vread_tick(void)
 {
@@ -121,6 +126,23 @@ notrace static __always_inline u64 vread_tick_stick(void)
 			     : "=r" (ret));
 	return ret;
 }
+
+notrace static __always_inline u64 shr64(u64 val, int amt)
+{
+	uint64_t ret;
+	__asm__ __volatile__(
+		// Compose values
+		"sllx %H1, 32, %%g1\n\t"
+		"or %%g1, %L1, %%g1\n\t"
+		// Do the shift
+		"srlx %%g1, %2, %%g1\n\t"
+		// Decompose back
+		"srl %%g1, 0, %L0\n\t"
+		"srlx %%g1, 32, %H0"
+		: "=r" (ret) : "r" (val), "r" (amt) : "g1");
+	return ret;
+}
+
 #endif
 
 notrace static __always_inline u64 vgetsns(struct vvar_data *vvar)
@@ -154,7 +176,7 @@ notrace static __always_inline int do_realtime(struct vvar_data *vvar,
 		ts->tv_sec = vvar->wall_time_sec;
 		ns = vvar->wall_time_snsec;
 		ns += vgetsns(vvar);
-		ns >>= vvar->clock.shift;
+		ns = shr64(ns, vvar->clock.shift);
 	} while (unlikely(vvar_read_retry(vvar, seq)));
 
 	ts->tv_sec += __iter_div_u64_rem(ns, NSEC_PER_SEC, &ns);
@@ -174,7 +196,7 @@ notrace static __always_inline int do_realtime_stick(struct vvar_data *vvar,
 		ts->tv_sec = vvar->wall_time_sec;
 		ns = vvar->wall_time_snsec;
 		ns += vgetsns_stick(vvar);
-		ns >>= vvar->clock.shift;
+		ns = shr64(ns, vvar->clock.shift);
 	} while (unlikely(vvar_read_retry(vvar, seq)));
 
 	ts->tv_sec += __iter_div_u64_rem(ns, NSEC_PER_SEC, &ns);
@@ -194,7 +216,7 @@ notrace static __always_inline int do_monotonic(struct vvar_data *vvar,
 		ts->tv_sec = vvar->monotonic_time_sec;
 		ns = vvar->monotonic_time_snsec;
 		ns += vgetsns(vvar);
-		ns >>= vvar->clock.shift;
+		ns = shr64(ns, vvar->clock.shift);
 	} while (unlikely(vvar_read_retry(vvar, seq)));
 
 	ts->tv_sec += __iter_div_u64_rem(ns, NSEC_PER_SEC, &ns);
@@ -214,7 +236,7 @@ notrace static __always_inline int do_monotonic_stick(struct vvar_data *vvar,
 		ts->tv_sec = vvar->monotonic_time_sec;
 		ns = vvar->monotonic_time_snsec;
 		ns += vgetsns_stick(vvar);
-		ns >>= vvar->clock.shift;
+		ns = shr64(ns, vvar->clock.shift);
 	} while (unlikely(vvar_read_retry(vvar, seq)));
 
 	ts->tv_sec += __iter_div_u64_rem(ns, NSEC_PER_SEC, &ns);
